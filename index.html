@@ -668,7 +668,7 @@
 
       function zoomToAnnotation(annotation) {
         const rect = viewport.getBoundingClientRect();
-        const targetZoom = Math.max(state.zoom, 2.4);
+        const targetZoom = Math.max(state.zoom, 1.0);
         const worldWidth = mapImage.naturalWidth || rect.width;
         const worldHeight = mapImage.naturalHeight || rect.height;
         const targetX = annotation.x * worldWidth;
@@ -715,25 +715,21 @@
 
         state.annotations.forEach((annotation) => {
           const marker = document.createElement('button');
+          const isSelected = state.selectedId === annotation.id;
           marker.type = 'button';
-          marker.className = `annotation ${state.zoom >= state.threshold ? 'bubble' : 'dot'}`;
+          marker.className = `annotation ${isSelected ? 'bubble' : 'dot'}`;
           marker.style.left = `${annotation.x * worldWidth}px`;
           marker.style.top = `${annotation.y * worldHeight}px`;
-          if(marker.className == 'annotation dot'){
 
-              marker.style.background = annotation.color;
-              marker.style["box-shadow"] = "0 0 0 5px " + annotation.color;
+          if (!isSelected) {
+            marker.style.background = annotation.color;
+            marker.style.boxShadow = `0 0 0 5px ${annotation.color}`;
           }
-          
-          // Set the color of the marker based on the annotation's color property
-          //todo this isn't working:
-          //marker.style.color = annotation.color;
-          
 
           marker.setAttribute('data-id', annotation.id);
           marker.setAttribute('aria-label', annotation.title || 'Annotation');
 
-          if (state.zoom >= state.threshold) {
+          if (isSelected) {
             const bubble = document.createElement('div');
             bubble.className = 'bubble-body';
             bubble.innerHTML = `
@@ -749,6 +745,15 @@
 
           marker.addEventListener('click', (event) => {
             event.stopPropagation();
+
+            if (state.selectedId === annotation.id) {
+              state.selectedId = null;
+              renderAnnotations();
+              return;
+            }
+
+            state.selectedId = annotation.id;
+            renderAnnotations();
             zoomToAnnotation(annotation);
           });
 

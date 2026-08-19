@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Map Annotation Viewer</title>
+    <style>
+      :root {
+        --bg: #0f1e14;
+        --panel: rgba(14, 28, 21, 0.8);
+        --panel-border: rgba(255, 255, 255, 0.12);
+        --text: #edf3ef;
+        --muted: #d2d9d5;
+        --accent: #66d4ff;
+        --accent-strong: #3bb4ff;
+        --dot: #ff5f5f;
+        --dot-shadow: rgba(255, 95, 95, 0.45);
+        --bubble: rgba(9, 28, 22, 0.82);
+        --bubble-border: rgba(255, 255, 255, 0.18);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        overflow: hidden;
+      }
+
+      body {
+        display: flex;
+        align-items: stretch;
+        justify-content: stretch;
+      }
+
+      #app {
+        position: relative;
+        width: 100%;
+        height: 100dvh;
+        min-height: 100dvh;
+        overflow: hidden;
+        background: #99b588;
+      }
+
+      #viewport {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        cursor: grab;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+
+      #viewport.annotation-mode {
+        cursor: crosshair;
+      }
+
+      #viewport.dragging {
+        cursor: grabbing;
+      }
+
+      #mapTransform {
+        position: absolute;
+        left: 0;
+        top: 0;
+        transform-origin: 0 0;
+        transition: transform 0.28s ease, translate 0.28s ease;
+      }
+
+      #mapImage {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        user-select: none;
+        pointer-events: none;
+        /* background: #d7e1d1; */
+      }
+
+      #annotationsLayer {
+        position: absolute;
+        inset: 0;
+      }
+
+      .annotation {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        transform-origin: center center;
+        cursor: pointer;
+        z-index: 2;
+      }
+
+      .annotation.dot {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--dot);
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 0 0 5px var(--dot-shadow);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .annotation.dot:hover {
+        transform: translate(-50%, -50%) scale(1.15);
+      }
+
+      .annotation.bubble {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        min-width: 160px;
+        max-width: 220px;
+        background: transparent;
+        border: none;
+        padding: 0;
+        box-shadow: none;
+      }
+
+      .annotation.bubble .bubble-body {
+        background: var(--bubble);
+        border: 1px solid var(--bubble-border);
+        border-radius: 14px;
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.24);
+        padding: 8px 10px;
+        color: var(--text);
+        font-size: 11px;
+        line-height: 1.3;
+        backdrop-filter: blur(5px);
+        position: relative;
+      }
+
+      .annotation.bubble .bubble-body strong {
+        display: block;
+        margin-bottom: 3px;
+        color: #ffffff;
+        font-size: 12px;
+      }
+
+      .annotation.bubble .bubble-body small {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        white-space: pre-line;
+      }
+
+      .annotation.bubble::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: -8px;
+        width: 14px;
+        height: 14px;
+        background: var(--bubble);
+        transform: translateX(-50%) rotate(45deg);
+        border-right: 1px solid var(--bubble-border);
+        border-bottom: 1px solid var(--bubble-border);
+      }
+
+      #toolbar {
+        position: fixed;
+        bottom: 16px;
+        left: 16px;
+        right: 16px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        z-index: 10;
+        align-items: center;
+        pointer-events: none;
+      }
+
+      #toolbar > * {
+        pointer-events: auto;
+      }
+
+      .toolbar-status {
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--panel-border);
+        background: rgba(15, 33, 24, 0.8);
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        backdrop-filter: blur(12px);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-2px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+
+      .toolbar-status.active {
+        background: rgba(65, 164, 112, 0.2);
+        color: #d9ffe4;
+        border-color: rgba(109, 233, 154, 0.5);
+      }
+
+      .toolbar-button {
+        border: 1px solid var(--panel-border);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 10px 16px;
+        font-size: 14px;
+        cursor: pointer;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+      }
+
+      .toolbar-button:hover {
+        border-color: rgba(255, 255, 255, 0.24);
+      }
+
+      .toolbar-button.primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+        color: #072531;
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+
+      .toolbar-button.hidden,
+      .toolbar-status.hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(-4px);
+      }
+
+      #annotationDialog {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(8, 16, 12, 0.5);
+        z-index: 20;
+      }
+
+      #annotationDialog.open {
+        display: flex;
+      }
+
+      .dialog-card {
+        width: min(420px, calc(100vw - 32px));
+        background: rgba(15, 26, 20, 0.9);
+        border: 1px solid var(--panel-border);
+        border-radius: 18px;
+        box-shadow: 0 22px 52px rgba(0, 0, 0, 0.28);
+        padding: 20px;
+      }
+
+      .dialog-card h2 {
+        margin: 0 0 16px;
+        font-size: 1.2rem;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .field label {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      .field input,
+      .field textarea {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      .field textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .dialog-button {
+        border: 1px solid var(--panel-border);
+        background: transparent;
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+
+      .dialog-button.primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+        color: #062a36;
+        border-color: rgba(255, 255, 255, 0.08);
+      }
+
+      @media (max-width: 660px) {
+        #toolbar {
+          top: auto;
+          bottom: 16px;
+          left: 16px;
+          right: 16px;
+          justify-content: space-between;
+        }
+
+        .toolbar-button {
+          flex: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="viewport" aria-label="Map annotation viewport">
+        <div id="mapTransform">
+          <img id="mapImage" src="map.webp" alt="Map" />
+          <div id="annotationsLayer" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div id="toolbar">
+        <div id="annotationModeStatus" class="toolbar-status hidden">Annotation mode: OFF</div>
+        <button id="resetViewBtn" class="toolbar-button" type="button">Reset View</button>
+        <button id="exportBtn" class="toolbar-button primary hidden" type="button">Export Annotations</button>
+      </div>
+
+      <div id="annotationDialog" aria-modal="true" role="dialog" aria-labelledby="dialogTitle">
+        <div class="dialog-card">
+          <h2 id="dialogTitle">Add annotation</h2>
+
+          <div class="field">
+            <label for="annotationTitle">Title</label>
+            <input id="annotationTitle" type="text" maxlength="80" placeholder="Example: Castle Gate" />
+          </div>
+
+          <div class="field">
+            <label for="annotationDetails">Details</label>
+            <textarea id="annotationDetails" placeholder="Write notes for this location"></textarea>
+          </div>
+
+          <div class="dialog-actions">
+            <button id="cancelAnnotationBtn" class="dialog-button" type="button">Cancel</button>
+            <button id="saveAnnotationBtn" class="dialog-button primary" type="button">Save annotation</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const DEFAULT_ANNOTATIONS = [
+{
+    "id": "dbc4921d-2de7-4870-b4f6-5128d526b313",
+    "x": 0.6273792093704246,
+    "y": 0.39705882352941174,
+    "color": "red",
+    "title": "Cosmic Rays",
+    "details": "Garlic Butter Burger\nSweet and Spicy Chicken Strips\nMinnie Witch Hat\nOogie Slushie"
+  },
+  {
+    "id": "11b1ecfe-cef0-4b5d-8561-92d2aadb83a0",
+    "x": 0.6903205902605379,
+    "y": 0.5735839779450509,
+    "color": "red",
+    "title": "Lunching Pad",
+    "details": "Jalapeno Popper Hot Dog"
+  },
+  {
+    "id": "045460ca-300e-43db-9191-7467988d4efd",
+    "x": 0.14746656962972016,
+    "y": 0.5118651535552609,
+    "color": "red",
+    "title": "Pecos Bill",
+    "details": "Cowboy Fries \nBuzzard Wings\nPumpkin Mini Churros\nGuava Lemonade"
+  },
+  {
+    "id": "fcd23372-74dc-4019-82f6-edb54beeeb49",
+    "x": 0.11478654204040079,
+    "y": 0.5463264953487913,
+    "color": "red",
+    "title": "Golden Oak",
+    "details": "Crawfish and Sausage Bootine \nBeignets"
+  },
+  {
+    "id": "c7563aa4-0f24-4103-b12a-775d93b9397e",
+    "x": 0.4548524097852783,
+    "y": 0.22763354272274453,
+    "color": "red",
+    "title": "Pinocchio",
+    "details": "Fra Diavolo Chicken Sandwich\nPumpkin Ravioli\nGarlic Parm Chicken Strips\nCookie Sandwich\nBlue Raspberry Slushy"
+  },
+  {
+    "id": "e8230754-7e83-496e-98e2-4c77b294a0db",
+    "x": 0.541079168875031,
+    "y": 0.28095132503623643,
+    "color": "red",
+    "title": "Friar Nook",
+    "details": "Bowl of Wings (Wings with Cherry Coke Sauce)\nJalapeno Tots\nApple Donuts\nBuffalo Chicken Hand Pie"
+  },
+  {
+    "id": "3233da4b-c6ce-4dfc-b2e1-a14df115345a",
+    "x": 0.5652784185043268,
+    "y": 0.2695564575993558,
+    "color": "red",
+    "title": "Storybook Treats",
+    "details": "Ursula Cone"
+  },
+  {
+    "id": "c2da7912-ded9-4576-ab60-6942c184ca95",
+    "x": 0.3979057705970062,
+    "y": 0.42772049427351105,
+    "color": "red",
+    "title": "Sleepy Hollow",
+    "details": "Chicken and Waffles \nGhost Pop"
+  },
+  {
+    "id": "8e6d9c17-0460-45b9-939e-a408636f0944",
+    "x": 0.6757383283865488,
+    "y": 0.5165693363540427,
+    "color": "yellow",
+    "title": "Auntie Gravity",
+    "details": "Cold Brew"
+  },
+  {
+    "id": "a7e48cd4-1803-4bb7-bc97-1835a4a775b9",
+    "x": 0.6941623422737102,
+    "y": 0.580016221369051,
+    "color": "yellow",
+    "title": "Lunching Pad",
+    "details": "Blue Raspberry Slushy"
+  },
+  {
+    "id": "208be9ce-4f88-4ac2-a1f6-8f90030c02dc",
+    "x": 0.6024571996182413,
+    "y": 0.3402435199472742,
+    "color": "yellow",
+    "title": "Cheshire Cat",
+    "details": "Cherry Tart"
+  },
+  {
+    "id": "03b7ee86-2646-48e8-a7b0-81e2a74573c5",
+    "x": 0.2149836361230651,
+    "y": 0.5582137445562328,
+    "color": "yellow",
+    "title": "Aloha Isle",
+    "details": "Mango and Chamoy Float"
+  },
+  {
+    "id": "7ddacae9-2968-4299-9485-4978508cc8fb",
+    "x": 0.3622121709940246,
+    "y": 0.3305022661540275,
+    "color": "yellow",
+    "title": "Columbia Harbor House",
+    "details": "Smores Cup"
+  },
+  {
+    "id": "75383097-b23e-408a-9bfb-a291a635622c",
+    "x": 0.5114358068061043,
+    "y": 0.6504100157351596,
+    "color": "yellow",
+    "title": "The Plaza",
+    "details": "Chicken Sandwich\nMeatloaf\nPecan Caramel Cheesecake \nPumpkin Sundae\nGoblin Drink"
+  },
+  {
+    "id": "5b421166-472f-421e-925a-54666b4ac12d",
+    "x": 0.31248963586925804,
+    "y": 0.4944151447540792,
+    "color": "blue",
+    "title": "Diamond Horseshoe",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "95caa7b3-54a4-4007-9b1e-f0b16c245579",
+    "x": 0.34418717655153663,
+    "y": 0.5609156366464623,
+    "color": "blue",
+    "title": "Sunshine Tree Terrace",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "99b3e31c-eba8-4f9c-b9a4-8747a70dbb2b",
+    "x": 0.21903224009562794,
+    "y": 0.6100445948562111,
+    "color": "blue",
+    "title": "Tiki Room",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "d0f90885-50b8-4bd4-be0d-1a28336b3732",
+    "x": 0.16059668237265529,
+    "y": 0.5967513654740652,
+    "color": "blue",
+    "title": "Tortuga Tavern",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "91ca5109-6e67-48bd-b713-74b74c516931",
+    "x": 0.1395680654603558,
+    "y": 0.4156030916692113,
+    "color": "blue",
+    "title": "Big Thunder",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "0a2dc563-73a9-4c68-b413-2f16d3dc2844",
+    "x": 0.6490191503444745,
+    "y": 0.5759147702611404,
+    "color": "blue",
+    "title": "Laugh Floor",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "2adeae64-61b6-4e9a-bd0d-dbfd16fc6e01",
+    "x": 0.6435981163401605,
+    "y": 0.5398496609808836,
+    "color": "blue",
+    "title": "Tomorrowland Treat Trail",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "ed2594f5-5ef1-454b-a758-d973baf7b687",
+    "x": 0.7085558166732607,
+    "y": 0.1998748538856676,
+    "color": "blue",
+    "title": "Dumbo",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "693a415b-f4ff-4747-be33-e9efcc1f6fb9",
+    "x": 0.7832034050869839,
+    "y": 0.13825323314118582,
+    "color": "blue",
+    "title": "Railroad",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "d74826ba-8b80-431d-a49a-b726665f1acd",
+    "x": 0.50185402134501,
+    "y": 0.14387666652179876,
+    "color": "blue",
+    "title": "Enchanted Tales",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "7df17368-9b01-4d73-bfac-9778b7d65422",
+    "x": 0.44949626237331236,
+    "y": 0.3111257280317701,
+    "color": "blue",
+    "title": "Philharmagic",
+    "details": "Trick or Treat"
+  },
+  {
+    "id": "4dd5e3be-f888-4782-b5d1-142eb81ae030",
+    "x": 0.5173389085155358,
+    "y": 0.29991317803117745,
+    "color": "blue",
+    "title": "Princess Hall",
+    "details": "Trick or Treat"
+  }
+];
+
+      const state = {
+        zoom: 1,
+        panX: 0,
+        panY: 0,
+        threshold: .8,
+        minZoom: 0.15,
+        maxZoom: 12,
+        annotations: JSON.parse(JSON.stringify(DEFAULT_ANNOTATIONS)),
+        pendingPoint: null,
+        selectedId: null,
+        annotationMode: false,
+        isDragging: false,
+        dragStartX: 0,
+        dragStartY: 0,
+        dragStartPanX: 0,
+        dragStartPanY: 0,
+        dragMoved: false,
+        activePointers: new Map(),
+        pinchStartDistance: 0,
+        pinchStartZoom: 1,
+        pinchStartPanX: 0,
+        pinchStartPanY: 0,
+        pinchStartMidpoint: null,
+        pinchMode: false
+      };
+
+      const viewport = document.getElementById('viewport');
+      const mapTransform = document.getElementById('mapTransform');
+      const annotationsLayer = document.getElementById('annotationsLayer');
+      const exportBtn = document.getElementById('exportBtn');
+      const resetViewBtn = document.getElementById('resetViewBtn');
+      const annotationModeStatus = document.getElementById('annotationModeStatus');
+      const dialog = document.getElementById('annotationDialog');
+      const titleInput = document.getElementById('annotationTitle');
+      const detailsInput = document.getElementById('annotationDetails');
+      const saveBtn = document.getElementById('saveAnnotationBtn');
+      const cancelBtn = document.getElementById('cancelAnnotationBtn');
+
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function updateAnnotationModeUI() {
+        annotationModeStatus.textContent = state.annotationMode ? 'Annotation mode: ON' : 'Annotation mode: OFF';
+        annotationModeStatus.classList.toggle('active', state.annotationMode);
+        annotationModeStatus.classList.toggle('hidden', !state.annotationMode);
+        exportBtn.classList.toggle('hidden', !state.annotationMode);
+        viewport.classList.toggle('annotation-mode', state.annotationMode);
+      }
+
+      function getMapPointFromEvent(event) {
+        const rect = mapTransform.getBoundingClientRect();
+        const x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+        const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+        return { x, y };
+      }
+
+      function applyMapTransform() {
+        const width = mapImage.naturalWidth || 1;
+        const height = mapImage.naturalHeight || 1;
+        mapTransform.style.width = `${width}px`;
+        mapTransform.style.height = `${height}px`;
+        mapTransform.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+      }
+
+      function setZoom(nextZoom, anchorX, anchorY) {
+        const rect = viewport.getBoundingClientRect();
+        const pointerX = anchorX - rect.left;
+        const pointerY = anchorY - rect.top;
+        const worldX = (pointerX - state.panX) / state.zoom;
+        const worldY = (pointerY - state.panY) / state.zoom;
+        const clampedZoom = clamp(nextZoom, state.minZoom, state.maxZoom);
+
+        state.zoom = clampedZoom;
+        state.panX = pointerX - worldX * clampedZoom;
+        state.panY = pointerY - worldY * clampedZoom;
+        applyMapTransform();
+        renderAnnotations();
+      }
+
+      function zoomToAnnotation(annotation) {
+        const rect = viewport.getBoundingClientRect();
+        const targetZoom = Math.max(state.zoom, 2.4);
+        const worldWidth = mapImage.naturalWidth || rect.width;
+        const worldHeight = mapImage.naturalHeight || rect.height;
+        const targetX = annotation.x * worldWidth;
+        const targetY = annotation.y * worldHeight;
+
+        state.zoom = targetZoom;
+        state.panX = rect.width / 2 - targetX * state.zoom;
+        state.panY = rect.height / 2 - targetY * state.zoom;
+        state.selectedId = annotation.id;
+        applyMapTransform();
+        renderAnnotations();
+      }
+
+      function resetView() {
+        const rect = viewport.getBoundingClientRect();
+        const worldWidth = mapImage.naturalWidth || rect.width;
+        const worldHeight = mapImage.naturalHeight || rect.height;
+        const baseScale = clamp(Math.min(rect.width / worldWidth, rect.height / worldHeight), 0.25, 1.3);
+
+        state.zoom = baseScale;
+        state.panX = (rect.width - worldWidth * baseScale) / 2;
+        state.panY = (rect.height - worldHeight * baseScale) / 2;
+        state.selectedId = null;
+        applyMapTransform();
+        renderAnnotations();
+      }
+
+      function initializeView() {
+        if (mapImage.complete && mapImage.naturalWidth > 0) {
+          resetView();
+          return;
+        }
+
+        mapImage.addEventListener('load', () => {
+          resetView();
+        }, { once: true });
+      }
+
+      function renderAnnotations() {
+        annotationsLayer.innerHTML = '';
+
+        const worldWidth = mapImage.naturalWidth || 1;
+        const worldHeight = mapImage.naturalHeight || 1;
+
+        state.annotations.forEach((annotation) => {
+          const marker = document.createElement('button');
+          marker.type = 'button';
+          marker.className = `annotation ${state.zoom >= state.threshold ? 'bubble' : 'dot'}`;
+          marker.style.left = `${annotation.x * worldWidth}px`;
+          marker.style.top = `${annotation.y * worldHeight}px`;
+          if(marker.className == 'annotation dot'){
+
+              marker.style.background = annotation.color;
+              marker.style["box-shadow"] = "0 0 0 5px " + annotation.color;
+          }
+          
+          // Set the color of the marker based on the annotation's color property
+          //todo this isn't working:
+          //marker.style.color = annotation.color;
+          
+
+          marker.setAttribute('data-id', annotation.id);
+          marker.setAttribute('aria-label', annotation.title || 'Annotation');
+
+          if (state.zoom >= state.threshold) {
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble-body';
+            bubble.innerHTML = `
+              <strong>${escapeHtml(annotation.title || 'Annotation')}</strong>
+              ${annotation.details ? `<small>${escapeHtml(annotation.details)}</small>` : ''}
+            `;
+            marker.appendChild(bubble);
+            const bubbleScale = 1 / state.zoom;
+            marker.style.transform = `translate(-50%, -50%) scale(${bubbleScale})`;
+          } else {
+            marker.style.transform = 'translate(-50%, -50%)';
+          }
+
+          marker.addEventListener('click', (event) => {
+            event.stopPropagation();
+            zoomToAnnotation(annotation);
+          });
+
+          annotationsLayer.appendChild(marker);
+        });
+      }
+
+      function openAnnotationDialog(point) {
+        state.pendingPoint = point;
+        titleInput.value = '';
+        detailsInput.value = '';
+        dialog.classList.add('open');
+        titleInput.focus();
+      }
+
+      function closeAnnotationDialog() {
+        dialog.classList.remove('open');
+        state.pendingPoint = null;
+        titleInput.value = '';
+        detailsInput.value = '';
+      }
+
+      function saveAnnotationFromDialog() {
+        if (!state.pendingPoint) return;
+
+        const title = titleInput.value.trim() || `Annotation ${state.annotations.length + 1}`;
+        const details = detailsInput.value.trim();
+
+        const annotation = {
+          id: crypto.randomUUID ? crypto.randomUUID() : `annotation-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          x: state.pendingPoint.x,
+          y: state.pendingPoint.y,
+          color: 'red',
+          title,
+          details
+        };
+
+        state.annotations.push(annotation);
+        closeAnnotationDialog();
+        renderAnnotations();
+      }
+
+      function exportAnnotations() {
+        const payload = JSON.stringify(state.annotations, null, 2);
+        const blob = new Blob([payload], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'annotations.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function loadAnnotations() {
+        const embedded = DEFAULT_ANNOTATIONS.filter((item) => item && typeof item.x === 'number' && typeof item.y === 'number');
+        state.annotations = JSON.parse(JSON.stringify(embedded));
+        renderAnnotations();
+      }
+
+      function getViewportPoint(clientX, clientY) {
+        const rect = viewport.getBoundingClientRect();
+        return {
+          x: clientX - rect.left,
+          y: clientY - rect.top
+        };
+      }
+
+      function getDistance(a, b) {
+        return Math.hypot(b.x - a.x, b.y - a.y);
+      }
+
+      function getMidpoint(a, b) {
+        return {
+          x: (a.x + b.x) / 2,
+          y: (a.y + b.y) / 2
+        };
+      }
+
+      function beginDragFromPointer(event) {
+        if (state.annotationMode) return;
+
+        state.isDragging = true;
+        state.dragMoved = false;
+        state.dragStartX = event.clientX;
+        state.dragStartY = event.clientY;
+        state.dragStartPanX = state.panX;
+        state.dragStartPanY = state.panY;
+        viewport.classList.add('dragging');
+      }
+
+      function updateDragFromPointer(event) {
+        if (!state.isDragging) return;
+
+        const dx = event.clientX - state.dragStartX;
+        const dy = event.clientY - state.dragStartY;
+
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          state.dragMoved = true;
+        }
+
+        state.panX = state.dragStartPanX + dx;
+        state.panY = state.dragStartPanY + dy;
+        applyMapTransform();
+      }
+
+      function beginPinch() {
+        const points = Array.from(state.activePointers.values());
+        if (points.length < 2) return;
+
+        state.pinchMode = true;
+        state.isDragging = false;
+        state.dragMoved = false;
+        viewport.classList.remove('dragging');
+
+        const a = getViewportPoint(points[0].clientX, points[0].clientY);
+        const b = getViewportPoint(points[1].clientX, points[1].clientY);
+        state.pinchStartDistance = getDistance(a, b);
+        state.pinchStartZoom = state.zoom;
+        state.pinchStartPanX = state.panX;
+        state.pinchStartPanY = state.panY;
+        state.pinchStartMidpoint = getMidpoint(a, b);
+      }
+
+      viewport.addEventListener('pointerdown', (event) => {
+        if (state.annotationMode) return;
+
+        event.preventDefault();
+        state.activePointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+
+        if (event.target.closest('.annotation')) {
+          return;
+        }
+
+        if (state.activePointers.size === 1) {
+          beginDragFromPointer(event);
+        } else if (state.activePointers.size >= 2) {
+          beginPinch();
+        }
+      });
+
+      viewport.addEventListener('pointermove', (event) => {
+        if (!state.activePointers.has(event.pointerId)) {
+          return;
+        }
+
+        event.preventDefault();
+        state.activePointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+
+        if (state.annotationMode) return;
+
+        if (state.activePointers.size >= 2 && state.pinchStartDistance > 0) {
+          const points = Array.from(state.activePointers.values());
+          const a = getViewportPoint(points[0].clientX, points[0].clientY);
+          const b = getViewportPoint(points[1].clientX, points[1].clientY);
+          const distance = getDistance(a, b);
+          const midpoint = getMidpoint(a, b);
+          const scaleRatio = distance / state.pinchStartDistance;
+          const nextZoom = clamp(state.pinchStartZoom * scaleRatio, state.minZoom, state.maxZoom);
+          const worldX = (midpoint.x - state.pinchStartPanX) / state.pinchStartZoom;
+          const worldY = (midpoint.y - state.pinchStartPanY) / state.pinchStartZoom;
+
+          state.zoom = nextZoom;
+          state.panX = midpoint.x - worldX * nextZoom;
+          state.panY = midpoint.y - worldY * nextZoom;
+          applyMapTransform();
+          renderAnnotations();
+          return;
+        }
+
+        if (!state.isDragging) return;
+
+        updateDragFromPointer(event);
+      });
+
+      function stopDragging() {
+        if (!state.isDragging && !state.pinchMode) return;
+        state.isDragging = false;
+        state.pinchMode = false;
+        state.pinchStartDistance = 0;
+        state.pinchStartZoom = 1;
+        state.pinchStartPanX = 0;
+        state.pinchStartPanY = 0;
+        state.pinchStartMidpoint = null;
+        viewport.classList.remove('dragging');
+      }
+
+      viewport.addEventListener('pointerup', (event) => {
+        state.activePointers.delete(event.pointerId);
+        stopDragging();
+      });
+      viewport.addEventListener('pointerleave', (event) => {
+        state.activePointers.delete(event.pointerId);
+        stopDragging();
+      });
+      viewport.addEventListener('pointercancel', (event) => {
+        state.activePointers.delete(event.pointerId);
+        stopDragging();
+      });
+
+      viewport.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const delta = event.deltaY < 0 ? 1.12 : 0.9;
+        setZoom(state.zoom * delta, event.clientX, event.clientY);
+      }, { passive: false });
+
+      viewport.addEventListener('click', (event) => {
+        if (event.target.closest('.annotation')) {
+          return;
+        }
+
+        if (dialog.classList.contains('open')) {
+          return;
+        }
+
+        if (!state.annotationMode) {
+          return;
+        }
+
+        if (state.dragMoved) {
+          state.dragMoved = false;
+          return;
+        }
+
+        const point = getMapPointFromEvent(event);
+        openAnnotationDialog(point);
+      });
+
+      saveBtn.addEventListener('click', saveAnnotationFromDialog);
+      cancelBtn.addEventListener('click', closeAnnotationDialog);
+      exportBtn.addEventListener('click', exportAnnotations);
+      resetViewBtn.addEventListener('click', resetView);
+
+      dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) {
+          closeAnnotationDialog();
+        }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && dialog.classList.contains('open')) {
+          closeAnnotationDialog();
+          return;
+        }
+
+        if (event.shiftKey && event.key.toLowerCase() === 'a') {
+          event.preventDefault();
+          state.annotationMode = !state.annotationMode;
+          updateAnnotationModeUI();
+        }
+      });
+
+      initializeView();
+      updateAnnotationModeUI();
+      loadAnnotations();
+    </script>
+  </body>
+</html>
